@@ -1,0 +1,125 @@
+name: Build & Publish Binaries
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: ${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+        host:
+          - x64
+        target:
+          - x64
+        node:
+          - 18
+          - 16
+
+    name: ${{ matrix.os }} (node=${{ matrix.node }}, host=${{ matrix.host }}, target=${{ matrix.target }})
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Add msbuild to PATH
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@v1.1
+        with:
+          msbuild-architecture: ${{ matrix.target }}
+
+      - name: Setup node (node=${{ matrix.node }}, host=${{ matrix.host }})
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node }}
+          architecture: ${{ matrix.host }}
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Add env vars
+        shell: bash
+        run: |
+          echo "V=1" >> $GITHUB_ENV
+          echo "TARGET=${{ matrix.target }}" >> $GITHUB_ENV
+
+      - name: Configure build
+        run: ./node_modules/.bin/node-pre-gyp configure --target_arch=${{ env.TARGET }}
+
+      - name: Build binaries
+        run: ./node_modules/.bin/node-pre-gyp build --target_arch=${{ env.TARGET }}
+
+      - name: Package prebuilt binaries
+        run: ./node_modules/.bin/node-pre-gyp package --target_arch=${{ env.TARGET }}
+
+      # Run only for matrix.node 18
+      - name: Upload binaries to commit artifacts
+        uses: actions/upload-artifact@v3
+        if: matrix.node == 18
+        with:
+          name: prebuilt-windows
+          path: build/stage/*/*
+          retention-days: 7
+
+  build-darwin:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+        host:
+          - arm64
+        target:
+          - x64
+          - arm64
+        node:
+          - 18
+          - 16
+
+    name: ${{ matrix.os }} (node=${{ matrix.node }}, host=${{ matrix.host }}, target=${{ matrix.target }})
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v3
+        with:
+          python-version: "3.11"
+
+      - name: Setup node (node=${{ matrix.node }}, host=${{ matrix.host }})
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node }}
+          architecture: ${{ matrix.host }}
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Add env vars
+        shell: bash
+        run: |
+          echo "V=1" >> $GITHUB_ENV
+          echo "TARGET=${{ matrix.target }}" >> $GITHUB_ENV
+
+      - name: Configure build
+        run: ./node_modules/.bin/node-pre-gyp configure --target_arch=${{ env.TARGET }}
+
+      - name: Build binaries
+        run: ./node_modules/.bin/node-pre-gyp build --target_arch=${{ env.TARGET }}
+
+      - name: Package prebuilt binaries
+        run: ./node_modules/.bin/node-pre-gyp package --target_arch=${{ env.TARGET }}
+
+      # Run only for matrix.node 18
+      - name: Upload binaries to commit artifacts
+        uses: actions/upload-artifact@v3
+        if: matrix.node == 18
+        with:
+          name: prebuilt-darwin
+          path: build/stage/*/*
+          retention-days: 7

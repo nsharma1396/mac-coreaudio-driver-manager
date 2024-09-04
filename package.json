@@ -1,0 +1,78 @@
+{
+	"name": "mac-coreaudio-driver-manager",
+	"version": "0.0.1",
+	"description": "Node NAPI module to manage CoreAudio drivers on macOS (only output devices currently) - update default device, control volume, listen to volume change events, etc.",
+	"license": "MIT",
+	"author": {
+		"name": "Neeraj Sharma",
+		"url": "https://nsharma.netlify.app"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/nsharma1396/mac-coreaudio-driver-manager.git"
+	},
+	"engines": {
+		"node": ">=14"
+	},
+	"main": "./lib/index",
+	"types": "./index.d.ts",
+	"binary": {
+		"module_name": "node-mac-coreaudio-driver-manager",
+		"module_path": "./lib/binding/napi-{napi_build_version}-{platform}-{libc}-{arch}",
+		"host": "https://github.com/nsharma1396/mac-coreaudio-driver-manager/releases/download/",
+		"remote_path": "v{version}",
+		"package_name": "napi-{napi_build_version}-{platform}-{libc}-{arch}.tar.gz",
+		"napi_versions": [
+			6
+		]
+	},
+	"scripts": {
+		"test": "xo && ava && tsd",
+		"test-ci": "xo && tsd",
+		"build:windows:install": "node-pre-gyp install --fallback-to-build",
+		"build:windows": "node-pre-gyp build",
+		"build:windows:debug": "node-pre-gyp build --debug",
+		"install": "node-pre-gyp install --fallback-to-build"
+	},
+	"files": [
+		"lib",
+		"main",
+		"Sources",
+		"index.d.ts",
+		"binding.gyp"
+	],
+	"keywords": [
+		"mac",
+		"coreaudio",
+		"audio driver manager",
+		"volume control",
+		"volume event listener",
+		"update default device",
+		"custom property changes",
+		"node",
+		"napi"
+	],
+	"devDependencies": {
+		"ava": "^2.4.0",
+		"aws-sdk": "^2.1517.0",
+		"tsd": "^0.14.0",
+		"xo": "^0.38.2",
+		"node-pre-gyp-github": "^1.4.4"
+	},
+	"optionalDependencies": {
+		"@mapbox/node-pre-gyp": "^1.0.10",
+		"node-addon-api": "^5.0.0",
+		"node-gyp": "^9.3.0"
+	},
+	"peerDependencies": {
+		"node-gyp": "^9.3.0"
+	},
+	"peerDependenciesMeta": {
+		"node-gyp": {
+			"optional": true
+		}
+	},
+	"ava": {
+		"verbose": true
+	}
+}
