@@ -13,7 +13,7 @@ export interface IVolumeChangeEvent {
 	volume: number;
 }
 
-declare class AudioMonitor {
+declare class AudioManager {
 	/**
 	 * @description Starts monitoring the volume of the audio devices.
 	 */
@@ -58,4 +58,4 @@ declare class AudioMonitor {
 	setVirtualDeviceCustomProperty: (deviceName: string, value: string) => void;
 }
 
-export default AudioMonitor;
+export default AudioManager;

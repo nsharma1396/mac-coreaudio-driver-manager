@@ -24,10 +24,10 @@ auto callback = [](Napi::Env env, Napi::Function jsCallback,
   delete eventData;
 };
 
-class AudioMonitor : public Napi::ObjectWrap<AudioMonitor> {
+class AudioManager : public Napi::ObjectWrap<AudioManager> {
 public:
   static Napi::Object Init(Napi::Env env, Napi::Object exports);
-  AudioMonitor(const Napi::CallbackInfo &info);
+  AudioManager(const Napi::CallbackInfo &info);
 
 private:
   static Napi::FunctionReference constructor;
@@ -63,34 +63,34 @@ private:
   bool isMonitoring;
 };
 
-Napi::FunctionReference AudioMonitor::constructor;
+Napi::FunctionReference AudioManager::constructor;
 
-Napi::Object AudioMonitor::Init(Napi::Env env, Napi::Object exports) {
+Napi::Object AudioManager::Init(Napi::Env env, Napi::Object exports) {
   Napi::Function func = DefineClass(
-      env, "AudioMonitor",
-      {InstanceMethod("startVolumeMonitoring", &AudioMonitor::StartMonitoring),
-       InstanceMethod("stopVolumeMonitoring", &AudioMonitor::StopMonitoring),
-       InstanceMethod("setVolume", &AudioMonitor::SetVolume),
-       InstanceMethod("getVolume", &AudioMonitor::GetVolume),
-       InstanceMethod("switchAudioDevice", &AudioMonitor::SwitchAudioDevice),
+      env, "AudioManager",
+      {InstanceMethod("startVolumeMonitoring", &AudioManager::StartMonitoring),
+       InstanceMethod("stopVolumeMonitoring", &AudioManager::StopMonitoring),
+       InstanceMethod("setVolume", &AudioManager::SetVolume),
+       InstanceMethod("getVolume", &AudioManager::GetVolume),
+       InstanceMethod("switchAudioDevice", &AudioManager::SwitchAudioDevice),
        InstanceMethod("getDefaultAudioDeviceName",
-                      &AudioMonitor::GetDefaultAudioDeviceName),
+                      &AudioManager::GetDefaultAudioDeviceName),
        InstanceMethod("getAllAudioDeviceNames",
-                      &AudioMonitor::GetAllAudioDeviceNames),
+                      &AudioManager::GetAllAudioDeviceNames),
        InstanceMethod("setVirtualDeviceCustomProperty",
-                      &AudioMonitor::SetVirtualDeviceCustomProperty),
-       InstanceMethod("getMuteState", &AudioMonitor::GetMuteState),
-       InstanceMethod("setMuteState", &AudioMonitor::SetMuteState)});
+                      &AudioManager::SetVirtualDeviceCustomProperty),
+       InstanceMethod("getMuteState", &AudioManager::GetMuteState),
+       InstanceMethod("setMuteState", &AudioManager::SetMuteState)});
 
   constructor = Napi::Persistent(func);
   constructor.SuppressDestruct();
 
-  exports.Set("AudioMonitor", func);
+  exports.Set("AudioManager", func);
   return exports;
 }
 
-AudioMonitor::AudioMonitor(const Napi::CallbackInfo &info)
-    : Napi::ObjectWrap<AudioMonitor>(info), isMonitoring(false) {
+AudioManager::AudioManager(const Napi::CallbackInfo &info)
+    : Napi::ObjectWrap<AudioManager>(info), isMonitoring(false) {
   AudioObjectPropertyAddress propertyAddress = {
       kAudioHardwarePropertyDefaultOutputDevice,
       kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMaster};
@@ -100,7 +100,7 @@ AudioMonitor::AudioMonitor(const Napi::CallbackInfo &info)
                              NULL, &dataSize, &defaultOutputDevice);
 }
 
-std::string AudioMonitor::GetErrorDescription(OSStatus error) {
+std::string AudioManager::GetErrorDescription(OSStatus error) {
   switch (error) {
   case kAudioHardwareNoError:
     return "No Error";
@@ -143,7 +143,7 @@ std::string AudioMonitor::GetErrorDescription(OSStatus error) {
   }
 }
 
-std::vector<AudioDeviceID> AudioMonitor::GetAllAudioDevices() {
+std::vector<AudioDeviceID> AudioManager::GetAllAudioDevices() {
   AudioObjectPropertyAddress propertyAddress = {
       kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal,
       kAudioObjectPropertyElementMaster};
@@ -169,7 +169,7 @@ std::vector<AudioDeviceID> AudioMonitor::GetAllAudioDevices() {
 }
 
 AudioDeviceID
-AudioMonitor::GetAudioDeviceIdByName(const std::string &deviceName) {
+AudioManager::GetAudioDeviceIdByName(const std::string &deviceName) {
   NSString *deviceNameNS = [NSString stringWithUTF8String:deviceName.c_str()];
   auto devices = GetAllAudioDevices();
 
@@ -182,7 +182,7 @@ AudioMonitor::GetAudioDeviceIdByName(const std::string &deviceName) {
   return 0;
 }
 
-std::string AudioMonitor::GetDeviceName(AudioDeviceID deviceId) {
+std::string AudioManager::GetDeviceName(AudioDeviceID deviceId) {
   CFStringRef deviceNameCF = NULL;
   UInt32 dataSize = sizeof(CFStringRef);
   AudioObjectPropertyAddress propertyAddress = {
@@ -203,7 +203,7 @@ std::string AudioMonitor::GetDeviceName(AudioDeviceID deviceId) {
 }
 
 Napi::Value
-AudioMonitor::HandleAudioObjectError(const Napi::Env &env, OSStatus status,
+AudioManager::HandleAudioObjectError(const Napi::Env &env, OSStatus status,
                                      const std::string &errorMessage) {
   if (status != noErr) {
     Napi::Error::New(env, errorMessage + ": " + GetErrorDescription(status))
@@ -214,7 +214,7 @@ AudioMonitor::HandleAudioObjectError(const Napi::Env &env, OSStatus status,
 }
 
 Napi::Value
-AudioMonitor::GetAllAudioDeviceNames(const Napi::CallbackInfo &info) {
+AudioManager::GetAllAudioDeviceNames(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   auto devices = GetAllAudioDevices();
 
@@ -227,7 +227,7 @@ AudioMonitor::GetAllAudioDeviceNames(const Napi::CallbackInfo &info) {
 }
 
 Napi::Value
-AudioMonitor::GetDefaultAudioDeviceName(const Napi::CallbackInfo &info) {
+AudioManager::GetDefaultAudioDeviceName(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
   AudioObjectPropertyAddress propertyAddress = {
@@ -248,7 +248,7 @@ AudioMonitor::GetDefaultAudioDeviceName(const Napi::CallbackInfo &info) {
   return Napi::String::New(env, GetDeviceName(defaultOutputDevice));
 }
 
-Napi::Value AudioMonitor::StartMonitoring(const Napi::CallbackInfo &info) {
+Napi::Value AudioManager::StartMonitoring(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
   if (isMonitoring) {
@@ -256,7 +256,7 @@ Napi::Value AudioMonitor::StartMonitoring(const Napi::CallbackInfo &info) {
   }
 
   Napi::Function jsCallback = info[0].As<Napi::Function>();
-  tsfn = Napi::ThreadSafeFunction::New(env, jsCallback, "AudioMonitorCallback",
+  tsfn = Napi::ThreadSafeFunction::New(env, jsCallback, "AudioManagerCallback",
                                        0, 1);
 
   AudioObjectPropertyAddress propertyAddress = {
@@ -276,7 +276,7 @@ Napi::Value AudioMonitor::StartMonitoring(const Napi::CallbackInfo &info) {
   return env.Null();
 }
 
-Napi::Value AudioMonitor::StopMonitoring(const Napi::CallbackInfo &info) {
+Napi::Value AudioManager::StopMonitoring(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
   if (!isMonitoring) {
@@ -301,7 +301,7 @@ Napi::Value AudioMonitor::StopMonitoring(const Napi::CallbackInfo &info) {
   return env.Null();
 }
 
-Napi::Value AudioMonitor::SetVolume(const Napi::CallbackInfo &info) {
+Napi::Value AudioManager::SetVolume(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
   if (info.Length() < 2 || !info[0].IsString() || !info[1].IsNumber()) {
@@ -333,7 +333,7 @@ Napi::Value AudioMonitor::SetVolume(const Napi::CallbackInfo &info) {
   return HandleAudioObjectError(env, status, "Failed to set volume");
 }
 
-Napi::Value AudioMonitor::GetVolume(const Napi::CallbackInfo &info) {
+Napi::Value AudioManager::GetVolume(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
   if (info.Length() < 1 || !info[0].IsString()) {
@@ -367,7 +367,7 @@ Napi::Value AudioMonitor::GetVolume(const Napi::CallbackInfo &info) {
   return Napi::Number::New(env, volume);
 }
 
-OSStatus AudioMonitor::SetCustomProperty(AudioDeviceID deviceId,
+OSStatus AudioManager::SetCustomProperty(AudioDeviceID deviceId,
                                          std::string customPropertyString) {
   OSStatus status;
   UInt32 dataSize;
@@ -441,7 +441,7 @@ OSStatus AudioMonitor::SetCustomProperty(AudioDeviceID deviceId,
 }
 
 Napi::Value
-AudioMonitor::SetVirtualDeviceCustomProperty(const Napi::CallbackInfo &info) {
+AudioManager::SetVirtualDeviceCustomProperty(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
   OSStatus status;
@@ -472,7 +472,7 @@ AudioMonitor::SetVirtualDeviceCustomProperty(const Napi::CallbackInfo &info) {
   return Napi::Boolean::New(env, true);
 }
 
-Napi::Value AudioMonitor::SwitchAudioDevice(const Napi::CallbackInfo &info) {
+Napi::Value AudioManager::SwitchAudioDevice(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
   if (info.Length() < 1 || !info[0].IsString()) {
@@ -506,10 +506,10 @@ Napi::Value AudioMonitor::SwitchAudioDevice(const Napi::CallbackInfo &info) {
   return env.Null();
 }
 
-OSStatus AudioMonitor::VolumeChangeListener(
+OSStatus AudioManager::VolumeChangeListener(
     AudioObjectID inObjectID, UInt32 inNumberAddresses,
     const AudioObjectPropertyAddress *inAddresses, void *inClientData) {
-  AudioMonitor *monitor = static_cast<AudioMonitor *>(inClientData);
+  AudioManager *monitor = static_cast<AudioManager *>(inClientData);
 
   Float32 volume;
   UInt32 dataSize = sizeof(Float32);
@@ -533,7 +533,7 @@ OSStatus AudioMonitor::VolumeChangeListener(
   return noErr;
 }
 
-Napi::Value AudioMonitor::GetMuteState(const Napi::CallbackInfo &info) {
+Napi::Value AudioManager::GetMuteState(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
   OSStatus status;
@@ -579,7 +579,7 @@ Napi::Value AudioMonitor::GetMuteState(const Napi::CallbackInfo &info) {
   return Napi::Boolean::New(env, muted);
 }
 
-Napi::Value AudioMonitor::SetMuteState(const Napi::CallbackInfo &info) {
+Napi::Value AudioManager::SetMuteState(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
   OSStatus status;
@@ -615,7 +615,7 @@ Napi::Value AudioMonitor::SetMuteState(const Napi::CallbackInfo &info) {
 }
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
-  return AudioMonitor::Init(env, exports);
+  return AudioManager::Init(env, exports);
 }
 
-NODE_API_MODULE(audiomonitor, Init)
+NODE_API_MODULE(AudioManager, Init)

@@ -1,6 +1,6 @@
 # mac-coreaudio-driver-manager
 
-AudioMonitor.js is a Node.js addon library that allows you to monitor and control audio devices. It supports various functionalities such as starting/stopping volume monitoring, setting/getting volume levels, switching audio devices, and updating custom property in the driver.
+AudioManager.js is a Node.js addon library that allows you to monitor and control audio devices. It supports various functionalities such as starting/stopping volume monitoring, setting/getting volume levels, switching audio devices, and updating custom property in the driver.
 _Only output devices are supported currently_
 
 ## Installation
@@ -13,7 +13,7 @@ npm install mac-coreaudio-driver-manager
 
 ## API Usage
 
-mac-coreaudio-driver-manager exports an `AudioMonitor` class that provides various methods to interact with audio devices.
+mac-coreaudio-driver-manager exports an `AudioManager` class that provides various methods to interact with audio devices.
 
 ### Interface: `IVolumeChangeEvent`
 
@@ -34,7 +34,7 @@ export interface IVolumeChangeEvent {
 }
 ```
 
-### Class: `AudioMonitor`
+### Class: `AudioManager`
 
 #### Methods
 
@@ -80,39 +80,39 @@ export interface IVolumeChangeEvent {
 
 ### Example Usage
 
-Here's a basic example of how to use the `AudioMonitor` class:
+Here's a basic example of how to use the `AudioManager` class:
 
 ```javascript
-const AudioMonitor = require("audiomonitor");
+const AudioManager = require("AudioManager");
 
-const audioMonitor = new AudioMonitor();
+const AudioManager = new AudioManager();
 
 // Start monitoring volume changes
-audioMonitor.startVolumeMonitoring((event) => {
+AudioManager.startVolumeMonitoring((event) => {
 	console.log(`Volume changed on device ${event.device}: ${event.volume}`);
 });
 
 // Set volume for a specific device
-audioMonitor.setVolume("Device A", 50);
+AudioManager.setVolume("Device A", 50);
 
 // Get volume for a specific device
-const volume = audioMonitor.getVolume("Device A");
+const volume = AudioManager.getVolume("Device A");
 console.log(`Volume for Device A: ${volume}`);
 
 // Switch to a different audio device
-audioMonitor.switchAudioDevice("Device B");
+AudioManager.switchAudioDevice("Device B");
 
 // Get the default audio device name
-const defaultDevice = audioMonitor.getDefaultAudioDeviceName();
+const defaultDevice = AudioManager.getDefaultAudioDeviceName();
 console.log(`Default audio device: ${defaultDevice}`);
 
 // Get all audio device names
-const allDevices = audioMonitor.getAllAudioDeviceNames();
+const allDevices = AudioManager.getAllAudioDeviceNames();
 console.log(`All audio devices: ${allDevices.join(", ")}`);
 
 // Set a custom property for a virtual device
-audioMonitor.setVirtualDeviceCustomProperty("Virtual Device", "Custom Value");
+AudioManager.setVirtualDeviceCustomProperty("Virtual Device", "Custom Value");
 
 // Stop monitoring volume changes
-audioMonitor.stopVolumeMonitoring();
+AudioManager.stopVolumeMonitoring();
 ```
