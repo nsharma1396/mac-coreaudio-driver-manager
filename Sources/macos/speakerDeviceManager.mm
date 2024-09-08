@@ -52,6 +52,7 @@ private:
                        void *inClientData);
 
   static AudioDeviceID GetAudioDeviceIdByName(const std::string &deviceName);
+  static Boolean IsOutputDevice(AudioDeviceID deviceId);
   static std::vector<AudioDeviceID> GetAllAudioDevices();
   static std::string GetDeviceName(AudioDeviceID deviceId);
   static Napi::Value HandleAudioObjectError(const Napi::Env &env,
@@ -143,9 +144,43 @@ std::string AudioManager::GetErrorDescription(OSStatus error) {
   }
 }
 
+Boolean AudioManager::IsOutputDevice(AudioDeviceID deviceID) {
+  OSStatus status;
+  // Check if the device has output capabilities
+  AudioObjectPropertyAddress streamConfigAddress = {
+      kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyScopeOutput,
+      kAudioObjectPropertyElementMaster};
+
+  AudioBufferList *bufferList = NULL;
+  UInt32 bufferListSize = 0;
+
+  status = AudioObjectGetPropertyDataSize(deviceID, &streamConfigAddress, 0,
+                                          NULL, &bufferListSize);
+  if (status != noErr) {
+    return false;
+  }
+
+  bufferList = (AudioBufferList *)malloc(bufferListSize);
+  if (bufferList == NULL) {
+    return false;
+  }
+
+  status = AudioObjectGetPropertyData(deviceID, &streamConfigAddress, 0, NULL,
+                                      &bufferListSize, bufferList);
+  if (status != noErr) {
+    free(bufferList);
+    return false;
+  }
+
+  Boolean isOutputDevice = bufferList->mNumberBuffers > 0;
+
+  free(bufferList);
+  return isOutputDevice;
+}
+
 std::vector<AudioDeviceID> AudioManager::GetAllAudioDevices() {
   AudioObjectPropertyAddress propertyAddress = {
-      kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal,
+      kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeOutput,
       kAudioObjectPropertyElementMaster};
 
   UInt32 dataSize = 0;
@@ -165,7 +200,15 @@ std::vector<AudioDeviceID> AudioManager::GetAllAudioDevices() {
     return {};
   }
 
-  return audioDevices;
+  std::vector<AudioDeviceID> outputDevices;
+
+  for (const auto &deviceID : audioDevices) {
+    if (IsOutputDevice(deviceID)) {
+      outputDevices.push_back(deviceID);
+    }
+  }
+
+  return outputDevices;
 }
 
 AudioDeviceID
@@ -389,13 +432,17 @@ OSStatus AudioManager::SetCustomProperty(AudioDeviceID deviceId,
   }
 
   AudioServerPlugInCustomPropertyInfo *customPropertyInfo =
-      new AudioServerPlugInCustomPropertyInfo();
+      (AudioServerPlugInCustomPropertyInfo *)(malloc(dataSize));
+
+  if (customPropertyInfo == NULL) {
+    return kAudioHardwareUnspecifiedError;
+  }
 
   status = AudioObjectGetPropertyData(deviceId, &customPropertyAddress, 0, NULL,
                                       &dataSize, customPropertyInfo);
 
   if (status != noErr) {
-    delete customPropertyInfo;
+    free(customPropertyInfo);
     return status;
   }
 
@@ -405,7 +452,7 @@ OSStatus AudioManager::SetCustomProperty(AudioDeviceID deviceId,
 
   if (!AudioObjectHasProperty(deviceId, &propertyAddress)) {
     status = kAudioHardwareUnknownPropertyError;
-    delete customPropertyInfo;
+    free(customPropertyInfo);
     return status;
   }
 
@@ -414,7 +461,7 @@ OSStatus AudioManager::SetCustomProperty(AudioDeviceID deviceId,
       AudioObjectIsPropertySettable(deviceId, &propertyAddress, &isSettable);
 
   if (status != noErr) {
-    delete customPropertyInfo;
+    free(customPropertyInfo);
     return status;
   }
 
@@ -422,7 +469,7 @@ OSStatus AudioManager::SetCustomProperty(AudioDeviceID deviceId,
                                           &dataSize);
 
   if (status != noErr) {
-    delete customPropertyInfo;
+    free(customPropertyInfo);
     return status;
   }
 
@@ -435,7 +482,8 @@ OSStatus AudioManager::SetCustomProperty(AudioDeviceID deviceId,
                                  sizeof(CFStringRef), &customPropertyValue);
 
   CFRelease(customPropertyValue);
-  delete customPropertyInfo;
+
+  free(customPropertyInfo);
 
   return status;
 }
