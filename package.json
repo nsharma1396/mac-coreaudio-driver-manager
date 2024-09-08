@@ -1,6 +1,6 @@
 {
 	"name": "mac-coreaudio-driver-manager",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"description": "Node NAPI module to manage CoreAudio drivers on macOS (only output devices currently) - update default device, control volume, listen to volume change events, etc.",
 	"license": "MIT",
 	"author": {
