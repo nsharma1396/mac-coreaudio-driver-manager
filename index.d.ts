@@ -33,6 +33,14 @@ declare class AudioMonitor {
 	 */
 	getVolume: (deviceName: string, volume: number) => void;
 	/**
+	 * @description Returns whether the audio device with the name `deviceName` is muted.
+	 */
+	getMuteState: (deviceName: string) => boolean;
+	/**
+	 * @description Mutes the audio device with the name `deviceName`.
+	 */
+	setMuteState: (deviceName: string, isMuted: boolean) => void;
+	/**
 	 * @description Switches the default audio device to the device with the name `deviceName`.
 	 */
 	switchAudioDevice: (deviceName: string) => void;

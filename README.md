@@ -55,6 +55,14 @@ export interface IVolumeChangeEvent {
 
   - Returns the volume of the audio device with the name `deviceName`.
 
+- `getMuteState(deviceName: string) => boolean`
+
+  - Gets the mute state for the device with the `deviceName`
+
+- `setMuteState(deviceName: string, isMuted: boolean) => void`
+
+  - Sets the mute state for the device with the `deviceName`
+
 - `switchAudioDevice(deviceName: string): void`
 
   - Switches the default audio device to the device with the name `deviceName`.
