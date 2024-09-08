@@ -15,23 +15,12 @@ npm install mac-coreaudio-driver-manager
 
 mac-coreaudio-driver-manager exports an `AudioManager` class that provides various methods to interact with audio devices.
 
-### Interface: `IVolumeChangeEvent`
-
 ```typescript
-export interface IVolumeChangeEvent {
-	/**
-	 * @description Name of the event.
-	 */
-	eventName: "volumeChange";
-	/**
-	 * @description Name of the audio device.
-	 */
-	device: string;
-	/**
-	 * @description Volume level of the audio device.
-	 */
-	volume: number;
-}
+import AudioManager from "mac-coreaudio-driver-manager";
+
+OR;
+
+const AudioManager = require("mac-coreaudio-driver-manager");
 ```
 
 ### Class: `AudioManager`
@@ -77,6 +66,25 @@ export interface IVolumeChangeEvent {
 
 - `setVirtualDeviceCustomProperty(deviceName: string, value: string): void`
   - Finds the first custom property of the virtual device `deviceName` and attempts to set its value to `value`.
+
+### Interfaces: `IVolumeChangeEvent`
+
+```typescript
+export interface IVolumeChangeEvent {
+	/**
+	 * @description Name of the event.
+	 */
+	eventName: "volumeChange";
+	/**
+	 * @description Name of the audio device.
+	 */
+	device: string;
+	/**
+	 * @description Volume level of the audio device.
+	 */
+	volume: number;
+}
+```
 
 ### Example Usage
 
