@@ -3,6 +3,7 @@
 #include <CoreAudio/AudioServerPlugin.h>
 #include <CoreAudio/CoreAudio.h>
 #include <CoreFoundation/CoreFoundation.h>
+#include <MacTypes.h>
 #include <napi.h>
 #include <stdio.h>
 
@@ -43,14 +44,19 @@ private:
   Napi::Value SetMuteState(const Napi::CallbackInfo &info);
 
   static std::string GetErrorDescription(OSStatus error);
-
   static OSStatus SetCustomProperty(AudioDeviceID deviceId,
                                     std::string customPropertyString);
-
   static OSStatus
   VolumeChangeListener(AudioObjectID inObjectID, UInt32 inNumberAddresses,
                        const AudioObjectPropertyAddress *inAddresses,
                        void *inClientData);
+
+  static AudioDeviceID GetAudioDeviceIdByName(const std::string &deviceName);
+  static std::vector<AudioDeviceID> GetAllAudioDevices();
+  static std::string GetDeviceName(AudioDeviceID deviceId);
+  static Napi::Value HandleAudioObjectError(const Napi::Env &env,
+                                            OSStatus status,
+                                            const std::string &errorMessage);
 
   Napi::ThreadSafeFunction tsfn;
   AudioObjectID defaultOutputDevice;
@@ -94,57 +100,50 @@ AudioMonitor::AudioMonitor(const Napi::CallbackInfo &info)
                              NULL, &dataSize, &defaultOutputDevice);
 }
 
-// Utility function to get AudioDeviceID from device name
-OSStatus GetAudioDeviceIdByName(NSString *deviceName, AudioDeviceID *deviceId) {
-  AudioObjectPropertyAddress propertyAddress = {
-      kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal,
-      kAudioObjectPropertyElementMaster};
-
-  UInt32 dataSize = 0;
-  OSStatus status = AudioObjectGetPropertyDataSize(
-      kAudioObjectSystemObject, &propertyAddress, 0, NULL, &dataSize);
-  if (status != noErr) {
-    return status;
+std::string AudioMonitor::GetErrorDescription(OSStatus error) {
+  switch (error) {
+  case kAudioHardwareNoError:
+    return "No Error";
+    break;
+  case kAudioHardwareNotRunningError:
+    return "Hardware Not Running";
+    break;
+  case kAudioHardwareUnspecifiedError:
+    return "Unspecified Error";
+    break;
+  case kAudioHardwareUnknownPropertyError:
+    return "Unknown Property";
+    break;
+  case kAudioHardwareBadPropertySizeError:
+    return "Bad Property Size";
+    break;
+  case kAudioHardwareIllegalOperationError:
+    return "Illegal Operation";
+    break;
+  case kAudioHardwareBadObjectError:
+    return "Bad Object";
+    break;
+  case kAudioHardwareBadDeviceError:
+    return "Bad Device";
+    break;
+  case kAudioHardwareBadStreamError:
+    return "Bad Stream";
+    break;
+  case kAudioHardwareUnsupportedOperationError:
+    return "Unsupported Operation";
+    break;
+  case kAudioDeviceUnsupportedFormatError:
+    return "Unsupported Format";
+    break;
+  case kAudioDevicePermissionsError:
+    return "Permissions Error";
+    break;
+  default:
+    return "Unknown Error";
   }
-
-  UInt32 deviceCount = dataSize / sizeof(AudioDeviceID);
-  AudioDeviceID *devices = (AudioDeviceID *)malloc(dataSize);
-
-  status = AudioObjectGetPropertyData(
-      kAudioObjectSystemObject, &propertyAddress, 0, NULL, &dataSize, devices);
-  if (status != noErr) {
-    free(devices);
-    return status;
-  }
-
-  for (UInt32 i = 0; i < deviceCount; ++i) {
-    CFStringRef deviceNameCF = NULL;
-    dataSize = sizeof(deviceNameCF);
-    propertyAddress.mSelector = kAudioDevicePropertyDeviceNameCFString;
-
-    status = AudioObjectGetPropertyData(devices[i], &propertyAddress, 0, NULL,
-                                        &dataSize, &deviceNameCF);
-    if (status == noErr) {
-      NSString *currentDeviceName = (__bridge NSString *)deviceNameCF;
-      if ([currentDeviceName isEqualToString:deviceName]) {
-        *deviceId = devices[i];
-        CFRelease(deviceNameCF);
-        free(devices);
-        return noErr;
-      }
-      CFRelease(deviceNameCF);
-    }
-  }
-
-  free(devices);
-  return kAudioHardwareUnknownPropertyError;
 }
 
-// get all audio devices
-Napi::Value
-AudioMonitor::GetAllAudioDeviceNames(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
-
+std::vector<AudioDeviceID> AudioMonitor::GetAllAudioDevices() {
   AudioObjectPropertyAddress propertyAddress = {
       kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal,
       kAudioObjectPropertyElementMaster};
@@ -153,42 +152,76 @@ AudioMonitor::GetAllAudioDeviceNames(const Napi::CallbackInfo &info) {
   OSStatus status = AudioObjectGetPropertyDataSize(
       kAudioObjectSystemObject, &propertyAddress, 0, NULL, &dataSize);
   if (status != noErr) {
-    Napi::Error::New(env, "Failed to get audio devices")
-        .ThrowAsJavaScriptException();
-    return Napi::Array::New(env);
+    return {};
   }
 
   UInt32 deviceCount = dataSize / sizeof(AudioDeviceID);
-  AudioDeviceID *audioDevices = (AudioDeviceID *)(malloc(dataSize));
+  std::vector<AudioDeviceID> audioDevices(deviceCount);
 
   status =
       AudioObjectGetPropertyData(kAudioObjectSystemObject, &propertyAddress, 0,
-                                 NULL, &dataSize, audioDevices);
+                                 NULL, &dataSize, audioDevices.data());
   if (status != noErr) {
-    free(audioDevices);
-    Napi::Error::New(env, "Failed to get audio devices")
-        .ThrowAsJavaScriptException();
-    return Napi::Array::New(env);
+    return {};
   }
 
-  Napi::Array deviceNames = Napi::Array::New(env, deviceCount);
+  return audioDevices;
+}
 
-  for (UInt32 i = 0; i < deviceCount; ++i) {
-    CFStringRef deviceNameCF = NULL;
-    dataSize = sizeof(CFStringRef);
-    propertyAddress.mSelector = kAudioDevicePropertyDeviceNameCFString;
+AudioDeviceID
+AudioMonitor::GetAudioDeviceIdByName(const std::string &deviceName) {
+  NSString *deviceNameNS = [NSString stringWithUTF8String:deviceName.c_str()];
+  auto devices = GetAllAudioDevices();
 
-    status = AudioObjectGetPropertyData(audioDevices[i], &propertyAddress, 0,
-                                        NULL, &dataSize, &deviceNameCF);
-    if (status == noErr) {
-      NSString *currentDeviceName = (__bridge NSString *)deviceNameCF;
-      std::string deviceName = [currentDeviceName UTF8String];
-      deviceNames.Set(i, Napi::String::New(env, deviceName));
-      CFRelease(deviceNameCF);
+  for (const auto &deviceId : devices) {
+    if (GetDeviceName(deviceId) == std::string([deviceNameNS UTF8String])) {
+      return deviceId;
     }
   }
 
-  free(audioDevices);
+  return 0;
+}
+
+std::string AudioMonitor::GetDeviceName(AudioDeviceID deviceId) {
+  CFStringRef deviceNameCF = NULL;
+  UInt32 dataSize = sizeof(CFStringRef);
+  AudioObjectPropertyAddress propertyAddress = {
+      kAudioDevicePropertyDeviceNameCFString, kAudioObjectPropertyScopeGlobal,
+      kAudioObjectPropertyElementMaster};
+
+  OSStatus status = AudioObjectGetPropertyData(deviceId, &propertyAddress, 0,
+                                               NULL, &dataSize, &deviceNameCF);
+  if (status != noErr) {
+    return "";
+  }
+
+  NSString *deviceNameNS = (__bridge NSString *)deviceNameCF;
+  std::string deviceName = [deviceNameNS UTF8String];
+  CFRelease(deviceNameCF);
+
+  return deviceName;
+}
+
+Napi::Value
+AudioMonitor::HandleAudioObjectError(const Napi::Env &env, OSStatus status,
+                                     const std::string &errorMessage) {
+  if (status != noErr) {
+    Napi::Error::New(env, errorMessage + ": " + GetErrorDescription(status))
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  return env.Undefined();
+}
+
+Napi::Value
+AudioMonitor::GetAllAudioDeviceNames(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  auto devices = GetAllAudioDevices();
+
+  Napi::Array deviceNames = Napi::Array::New(env, devices.size());
+  for (size_t i = 0; i < devices.size(); ++i) {
+    deviceNames.Set(i, Napi::String::New(env, GetDeviceName(devices[i])));
+  }
 
   return deviceNames;
 }
@@ -201,37 +234,18 @@ AudioMonitor::GetDefaultAudioDeviceName(const Napi::CallbackInfo &info) {
       kAudioHardwarePropertyDefaultOutputDevice,
       kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMaster};
 
-  UInt32 dataSize = sizeof(AudioDeviceID);
   AudioDeviceID defaultOutputDevice;
+  UInt32 dataSize = sizeof(AudioDeviceID);
 
   OSStatus status =
       AudioObjectGetPropertyData(kAudioObjectSystemObject, &propertyAddress, 0,
                                  NULL, &dataSize, &defaultOutputDevice);
-
   if (status != noErr) {
-    Napi::Error::New(env, "Failed to get default output device")
-        .ThrowAsJavaScriptException();
-    return env.Null();
+    return HandleAudioObjectError(env, status,
+                                  "Failed to get default output device");
   }
 
-  propertyAddress.mSelector = kAudioDevicePropertyDeviceNameCFString;
-  CFStringRef deviceNameCF = NULL;
-  dataSize = sizeof(CFStringRef);
-
-  status = AudioObjectGetPropertyData(defaultOutputDevice, &propertyAddress, 0,
-                                      NULL, &dataSize, &deviceNameCF);
-
-  if (status != noErr) {
-    Napi::Error::New(env, "Failed to get default output device name")
-        .ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  NSString *deviceNameNS = (__bridge NSString *)deviceNameCF;
-  std::string deviceName = [deviceNameNS UTF8String];
-  CFRelease(deviceNameCF);
-
-  return Napi::String::New(env, deviceName);
+  return Napi::String::New(env, GetDeviceName(defaultOutputDevice));
 }
 
 Napi::Value AudioMonitor::StartMonitoring(const Napi::CallbackInfo &info) {
@@ -298,64 +312,15 @@ Napi::Value AudioMonitor::SetVolume(const Napi::CallbackInfo &info) {
   std::string deviceName = info[0].As<Napi::String>().Utf8Value();
   Float32 volume = info[1].As<Napi::Number>().FloatValue();
 
-  NSString *deviceNameNS = [NSString stringWithUTF8String:deviceName.c_str()];
-
-  AudioDeviceID deviceId = 0;
-  AudioObjectPropertyAddress propertyAddress = {
-      kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal,
-      kAudioObjectPropertyElementMaster};
-
-  UInt32 dataSize = 0;
-  OSStatus status = AudioObjectGetPropertyDataSize(
-      kAudioObjectSystemObject, &propertyAddress, 0, NULL, &dataSize);
-  if (status != noErr) {
-    Napi::Error::New(env, "Failed to get audio devices")
-        .ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  UInt32 deviceCount = dataSize / sizeof(AudioDeviceID);
-  AudioDeviceID *audioDevices = (AudioDeviceID *)(malloc(dataSize));
-
-  status =
-      AudioObjectGetPropertyData(kAudioObjectSystemObject, &propertyAddress, 0,
-                                 NULL, &dataSize, audioDevices);
-  if (status != noErr) {
-    free(audioDevices);
-    Napi::Error::New(env, "Failed to get audio devices")
-        .ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  for (UInt32 i = 0; i < deviceCount; ++i) {
-    CFStringRef deviceNameCF = NULL;
-    dataSize = sizeof(CFStringRef);
-    propertyAddress.mSelector = kAudioDevicePropertyDeviceNameCFString;
-
-    status = AudioObjectGetPropertyData(audioDevices[i], &propertyAddress, 0,
-                                        NULL, &dataSize, &deviceNameCF);
-    if (status == noErr) {
-      NSString *currentDeviceName = (__bridge NSString *)deviceNameCF;
-      if ([currentDeviceName isEqualToString:deviceNameNS]) {
-        deviceId = audioDevices[i];
-        CFRelease(deviceNameCF);
-        break;
-      }
-      CFRelease(deviceNameCF);
-    }
-  }
-
-  free(audioDevices);
-
+  AudioDeviceID deviceId = GetAudioDeviceIdByName(deviceName);
   if (deviceId == 0) {
     Napi::Error::New(env, "Device not found").ThrowAsJavaScriptException();
     return env.Null();
   }
 
-  // Check if the device has a main volume control
-  propertyAddress.mSelector = kAudioDevicePropertyVolumeScalar;
-  propertyAddress.mScope = kAudioDevicePropertyScopeOutput;
-  propertyAddress.mElement = kAudioObjectPropertyElementMaster;
+  AudioObjectPropertyAddress propertyAddress = {
+      kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyScopeOutput,
+      kAudioObjectPropertyElementMaster};
 
   if (!AudioObjectHasProperty(deviceId, &propertyAddress)) {
     Napi::Error::New(env, "Device does not have a main volume control")
@@ -363,16 +328,9 @@ Napi::Value AudioMonitor::SetVolume(const Napi::CallbackInfo &info) {
     return env.Null();
   }
 
-  // Set the volume
-  status = AudioObjectSetPropertyData(deviceId, &propertyAddress, 0, NULL,
-                                      sizeof(Float32), &volume);
-
-  if (status != noErr) {
-    Napi::Error::New(env, "Failed to set volume").ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  return env.Null();
+  OSStatus status = AudioObjectSetPropertyData(deviceId, &propertyAddress, 0,
+                                               NULL, sizeof(Float32), &volume);
+  return HandleAudioObjectError(env, status, "Failed to set volume");
 }
 
 Napi::Value AudioMonitor::GetVolume(const Napi::CallbackInfo &info) {
@@ -384,55 +342,8 @@ Napi::Value AudioMonitor::GetVolume(const Napi::CallbackInfo &info) {
   }
 
   std::string deviceName = info[0].As<Napi::String>().Utf8Value();
-  NSString *deviceNameNS = [NSString stringWithUTF8String:deviceName.c_str()];
 
-  AudioDeviceID deviceId = 0;
-  AudioObjectPropertyAddress propertyAddress = {
-      kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal,
-      kAudioObjectPropertyElementMaster};
-
-  UInt32 dataSize = 0;
-  OSStatus status = AudioObjectGetPropertyDataSize(
-      kAudioObjectSystemObject, &propertyAddress, 0, NULL, &dataSize);
-  if (status != noErr) {
-    Napi::Error::New(env, "Failed to get audio devices")
-        .ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  UInt32 deviceCount = dataSize / sizeof(AudioDeviceID);
-  AudioDeviceID *audioDevices = (AudioDeviceID *)(malloc(dataSize));
-
-  status =
-      AudioObjectGetPropertyData(kAudioObjectSystemObject, &propertyAddress, 0,
-                                 NULL, &dataSize, audioDevices);
-  if (status != noErr) {
-    free(audioDevices);
-    Napi::Error::New(env, "Failed to get audio devices")
-        .ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  for (UInt32 i = 0; i < deviceCount; ++i) {
-    CFStringRef deviceNameCF = NULL;
-    dataSize = sizeof(CFStringRef);
-    propertyAddress.mSelector = kAudioDevicePropertyDeviceNameCFString;
-
-    status = AudioObjectGetPropertyData(audioDevices[i], &propertyAddress, 0,
-                                        NULL, &dataSize, &deviceNameCF);
-    if (status == noErr) {
-      NSString *currentDeviceName = (__bridge NSString *)deviceNameCF;
-      if ([currentDeviceName isEqualToString:deviceNameNS]) {
-        deviceId = audioDevices[i];
-        CFRelease(deviceNameCF);
-        break;
-      }
-      CFRelease(deviceNameCF);
-    }
-  }
-
-  free(audioDevices);
-
+  AudioDeviceID deviceId = GetAudioDeviceIdByName(deviceName);
   if (deviceId == 0) {
     Napi::Error::New(env, "Device not found").ThrowAsJavaScriptException();
     return env.Null();
@@ -440,13 +351,13 @@ Napi::Value AudioMonitor::GetVolume(const Napi::CallbackInfo &info) {
 
   // Get the volume
   Float32 volume = 0.0f;
-  propertyAddress.mSelector = kAudioDevicePropertyVolumeScalar;
-  propertyAddress.mScope = kAudioDevicePropertyScopeOutput;
-  propertyAddress.mElement = kAudioObjectPropertyElementMaster;
+  AudioObjectPropertyAddress propertyAddress = {
+      kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyScopeOutput,
+      kAudioObjectPropertyElementMaster};
 
-  dataSize = sizeof(Float32);
-  status = AudioObjectGetPropertyData(deviceId, &propertyAddress, 0, NULL,
-                                      &dataSize, &volume);
+  UInt32 dataSize = sizeof(Float32);
+  OSStatus status = AudioObjectGetPropertyData(deviceId, &propertyAddress, 0,
+                                               NULL, &dataSize, &volume);
 
   if (status != noErr) {
     Napi::Error::New(env, "Failed to get volume").ThrowAsJavaScriptException();
@@ -454,49 +365,6 @@ Napi::Value AudioMonitor::GetVolume(const Napi::CallbackInfo &info) {
   }
 
   return Napi::Number::New(env, volume);
-}
-
-std::string AudioMonitor::GetErrorDescription(OSStatus error) {
-  switch (error) {
-  case kAudioHardwareNoError:
-    return "No Error";
-    break;
-  case kAudioHardwareNotRunningError:
-    return "Hardware Not Running";
-    break;
-  case kAudioHardwareUnspecifiedError:
-    return "Unspecified Error";
-    break;
-  case kAudioHardwareUnknownPropertyError:
-    return "Unknown Property";
-    break;
-  case kAudioHardwareBadPropertySizeError:
-    return "Bad Property Size";
-    break;
-  case kAudioHardwareIllegalOperationError:
-    return "Illegal Operation";
-    break;
-  case kAudioHardwareBadObjectError:
-    return "Bad Object";
-    break;
-  case kAudioHardwareBadDeviceError:
-    return "Bad Device";
-    break;
-  case kAudioHardwareBadStreamError:
-    return "Bad Stream";
-    break;
-  case kAudioHardwareUnsupportedOperationError:
-    return "Unsupported Operation";
-    break;
-  case kAudioDeviceUnsupportedFormatError:
-    return "Unsupported Format";
-    break;
-  case kAudioDevicePermissionsError:
-    return "Permissions Error";
-    break;
-  default:
-    return "Unknown Error";
-  }
 }
 
 OSStatus AudioMonitor::SetCustomProperty(AudioDeviceID deviceId,
@@ -521,12 +389,13 @@ OSStatus AudioMonitor::SetCustomProperty(AudioDeviceID deviceId,
   }
 
   AudioServerPlugInCustomPropertyInfo *customPropertyInfo =
-      (AudioServerPlugInCustomPropertyInfo *)(malloc(dataSize));
+      new AudioServerPlugInCustomPropertyInfo();
 
   status = AudioObjectGetPropertyData(deviceId, &customPropertyAddress, 0, NULL,
                                       &dataSize, customPropertyInfo);
 
   if (status != noErr) {
+    delete customPropertyInfo;
     return status;
   }
 
@@ -536,6 +405,7 @@ OSStatus AudioMonitor::SetCustomProperty(AudioDeviceID deviceId,
 
   if (!AudioObjectHasProperty(deviceId, &propertyAddress)) {
     status = kAudioHardwareUnknownPropertyError;
+    delete customPropertyInfo;
     return status;
   }
 
@@ -544,6 +414,7 @@ OSStatus AudioMonitor::SetCustomProperty(AudioDeviceID deviceId,
       AudioObjectIsPropertySettable(deviceId, &propertyAddress, &isSettable);
 
   if (status != noErr) {
+    delete customPropertyInfo;
     return status;
   }
 
@@ -551,14 +422,21 @@ OSStatus AudioMonitor::SetCustomProperty(AudioDeviceID deviceId,
                                           &dataSize);
 
   if (status != noErr) {
+    delete customPropertyInfo;
     return status;
   }
 
-  CFStringRef canBeDefaultKey = CFStringCreateWithCString(
+  // use customPropertyString to create this value
+  CFStringRef customPropertyValue = CFStringCreateWithCString(
       NULL, customPropertyString.c_str(), kCFStringEncodingUTF8);
 
-  status = AudioObjectSetPropertyData(deviceId, &propertyAddress, 0, NULL,
-                                      sizeof(CFStringRef), &canBeDefaultKey);
+  status =
+      AudioObjectSetPropertyData(deviceId, &propertyAddress, 0, NULL,
+                                 sizeof(CFStringRef), &customPropertyValue);
+
+  CFRelease(customPropertyValue);
+  delete customPropertyInfo;
+
   return status;
 }
 
@@ -574,17 +452,9 @@ AudioMonitor::SetVirtualDeviceCustomProperty(const Napi::CallbackInfo &info) {
   }
 
   std::string deviceName = info[0].As<Napi::String>().Utf8Value();
-  NSString *deviceNameNS = [NSString stringWithUTF8String:deviceName.c_str()];
   std::string customPropertyString = info[1].As<Napi::String>().Utf8Value();
 
-  AudioDeviceID deviceId;
-  status = GetAudioDeviceIdByName(deviceNameNS, &deviceId);
-
-  if (status != noErr) {
-    Napi::Error::New(env, "Failed to get audio device ID")
-        .ThrowAsJavaScriptException();
-    return env.Null();
-  }
+  AudioDeviceID deviceId = GetAudioDeviceIdByName(deviceName);
   if (deviceId == 0) {
     Napi::Error::New(env, "Device not found").ThrowAsJavaScriptException();
     return env.Null();
@@ -611,66 +481,19 @@ Napi::Value AudioMonitor::SwitchAudioDevice(const Napi::CallbackInfo &info) {
   }
 
   std::string deviceName = info[0].As<Napi::String>().Utf8Value();
-  NSString *deviceNameNS = [NSString stringWithUTF8String:deviceName.c_str()];
 
-  AudioDeviceID newDeviceId = 0;
-  AudioObjectPropertyAddress propertyAddress = {
-      kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal,
-      kAudioObjectPropertyElementMaster};
-
-  UInt32 dataSize = 0;
-  OSStatus status = AudioObjectGetPropertyDataSize(
-      kAudioObjectSystemObject, &propertyAddress, 0, NULL, &dataSize);
-  if (status != noErr) {
-    Napi::Error::New(env, "Failed to get audio devices")
-        .ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  UInt32 deviceCount = dataSize / sizeof(AudioDeviceID);
-  AudioDeviceID *audioDevices = (AudioDeviceID *)(malloc(dataSize));
-
-  status =
-      AudioObjectGetPropertyData(kAudioObjectSystemObject, &propertyAddress, 0,
-                                 NULL, &dataSize, audioDevices);
-  if (status != noErr) {
-    free(audioDevices);
-    Napi::Error::New(env, "Failed to get audio devices")
-        .ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  for (UInt32 i = 0; i < deviceCount; ++i) {
-    CFStringRef deviceNameCF = NULL;
-    dataSize = sizeof(CFStringRef);
-    propertyAddress.mSelector = kAudioDevicePropertyDeviceNameCFString;
-
-    status = AudioObjectGetPropertyData(audioDevices[i], &propertyAddress, 0,
-                                        NULL, &dataSize, &deviceNameCF);
-    if (status == noErr) {
-      NSString *currentDeviceName = (__bridge NSString *)deviceNameCF;
-      if ([currentDeviceName isEqualToString:deviceNameNS]) {
-        newDeviceId = audioDevices[i];
-        CFRelease(deviceNameCF);
-        break;
-      }
-      CFRelease(deviceNameCF);
-    }
-  }
-
-  free(audioDevices);
-
+  AudioDeviceID newDeviceId = GetAudioDeviceIdByName(deviceName);
   if (newDeviceId == 0) {
     Napi::Error::New(env, "Device not found").ThrowAsJavaScriptException();
     return env.Null();
   }
 
   // Set the default output device
-  propertyAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
-  propertyAddress.mScope = kAudioObjectPropertyScopeGlobal;
-  propertyAddress.mElement = kAudioObjectPropertyElementMaster;
+  AudioObjectPropertyAddress propertyAddress = {
+      kAudioHardwarePropertyDefaultOutputDevice,
+      kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMaster};
 
-  status =
+  OSStatus status =
       AudioObjectSetPropertyData(kAudioObjectSystemObject, &propertyAddress, 0,
                                  NULL, sizeof(AudioDeviceID), &newDeviceId);
 
@@ -699,23 +522,12 @@ OSStatus AudioMonitor::VolumeChangeListener(
 
   if (status == noErr) {
     // Get the device name
-    CFStringRef deviceNameCF = NULL;
-    dataSize = sizeof(CFStringRef);
-    propertyAddress.mSelector = kAudioDevicePropertyDeviceNameCFString;
-
-    status = AudioObjectGetPropertyData(inObjectID, &propertyAddress, 0, NULL,
-                                        &dataSize, &deviceNameCF);
-    if (status == noErr) {
-      NSString *deviceNameNS = (__bridge NSString *)deviceNameCF;
-      std::string deviceName = [deviceNameNS UTF8String];
-      // print volume to console
-      printf("Volume: %f\n", volume);
-      EventData *eventData = new EventData();
-      eventData->eventName = new std::string("volumeChange");
-      eventData->device = deviceName;
-      eventData->volume = volume;
-      monitor->tsfn.NonBlockingCall(eventData, callback);
-    }
+    std::string deviceName = GetDeviceName(inObjectID);
+    EventData *eventData = new EventData();
+    eventData->eventName = new std::string("volumeChange");
+    eventData->device = deviceName;
+    eventData->volume = volume;
+    monitor->tsfn.NonBlockingCall(eventData, callback);
   }
 
   return noErr;
@@ -724,19 +536,18 @@ OSStatus AudioMonitor::VolumeChangeListener(
 Napi::Value AudioMonitor::GetMuteState(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
+  OSStatus status;
+
   if (info.Length() < 1 || !info[0].IsString()) {
     Napi::TypeError::New(env, "Wrong arguments").ThrowAsJavaScriptException();
     return env.Null();
   }
 
   std::string deviceName = info[0].As<Napi::String>().Utf8Value();
-  NSString *deviceNameNS = [NSString stringWithUTF8String:deviceName.c_str()];
 
-  AudioDeviceID deviceId;
-  OSStatus status = GetAudioDeviceIdByName(deviceNameNS, &deviceId);
-  if (status != noErr) {
-    Napi::Error::New(env, "Failed to get audio device ID")
-        .ThrowAsJavaScriptException();
+  AudioDeviceID deviceId = GetAudioDeviceIdByName(deviceName);
+  if (deviceId == 0) {
+    Napi::Error::New(env, "Device not found").ThrowAsJavaScriptException();
     return env.Null();
   }
 
@@ -771,6 +582,8 @@ Napi::Value AudioMonitor::GetMuteState(const Napi::CallbackInfo &info) {
 Napi::Value AudioMonitor::SetMuteState(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
+  OSStatus status;
+
   if (info.Length() < 2 || !info[0].IsString() || !info[1].IsBoolean()) {
     Napi::TypeError::New(env, "Wrong arguments").ThrowAsJavaScriptException();
     return env.Null();
@@ -778,13 +591,10 @@ Napi::Value AudioMonitor::SetMuteState(const Napi::CallbackInfo &info) {
 
   std::string deviceName = info[0].As<Napi::String>().Utf8Value();
   bool muteState = info[1].As<Napi::Boolean>().Value();
-  NSString *deviceNameNS = [NSString stringWithUTF8String:deviceName.c_str()];
 
-  AudioDeviceID deviceId;
-  OSStatus status = GetAudioDeviceIdByName(deviceNameNS, &deviceId);
-  if (status != noErr) {
-    Napi::Error::New(env, "Failed to get audio device ID")
-        .ThrowAsJavaScriptException();
+  AudioDeviceID deviceId = GetAudioDeviceIdByName(deviceName);
+  if (deviceId == 0) {
+    Napi::Error::New(env, "Device not found").ThrowAsJavaScriptException();
     return env.Null();
   }
 
