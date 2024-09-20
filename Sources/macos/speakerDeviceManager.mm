@@ -306,6 +306,12 @@ Napi::Value AudioManager::StartMonitoring(const Napi::CallbackInfo &info) {
       kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyScopeOutput,
       kAudioObjectPropertyElementMaster};
 
+  if (!AudioObjectHasProperty(defaultOutputDevice, &propertyAddress)) {
+    Napi::Error::New(env, "Default device does not has a output volume control")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
   OSStatus status = AudioObjectAddPropertyListener(
       defaultOutputDevice, &propertyAddress, VolumeChangeListener, this);
 
@@ -329,6 +335,12 @@ Napi::Value AudioManager::StopMonitoring(const Napi::CallbackInfo &info) {
   AudioObjectPropertyAddress propertyAddress = {
       kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyScopeOutput,
       kAudioObjectPropertyElementMaster};
+
+  if (!AudioObjectHasProperty(defaultOutputDevice, &propertyAddress)) {
+    Napi::Error::New(env, "Default device does not has a output volume control")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
 
   OSStatus status = AudioObjectRemovePropertyListener(
       defaultOutputDevice, &propertyAddress, VolumeChangeListener, this);
@@ -366,7 +378,7 @@ Napi::Value AudioManager::SetVolume(const Napi::CallbackInfo &info) {
       kAudioObjectPropertyElementMaster};
 
   if (!AudioObjectHasProperty(deviceId, &propertyAddress)) {
-    Napi::Error::New(env, "Device does not have a main volume control")
+    Napi::Error::New(env, "Device does not have a output volume control")
         .ThrowAsJavaScriptException();
     return env.Null();
   }
@@ -398,9 +410,26 @@ Napi::Value AudioManager::GetVolume(const Napi::CallbackInfo &info) {
       kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyScopeOutput,
       kAudioObjectPropertyElementMaster};
 
-  UInt32 dataSize = sizeof(Float32);
-  OSStatus status = AudioObjectGetPropertyData(deviceId, &propertyAddress, 0,
-                                               NULL, &dataSize, &volume);
+  if (!AudioObjectHasProperty(deviceId, &propertyAddress)) {
+    Napi::Error::New(env, "Device does not has a main volume control")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  UInt32 dataSize;
+  OSStatus status;
+
+  status = AudioObjectGetPropertyDataSize(deviceId, &propertyAddress, 0, NULL,
+                                          &dataSize);
+
+  if (status != noErr) {
+    Napi::Error::New(env, "Failed to get volume size")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  status = AudioObjectGetPropertyData(deviceId, &propertyAddress, 0, NULL,
+                                      &dataSize, &volume);
 
   if (status != noErr) {
     Napi::Error::New(env, "Failed to get volume").ThrowAsJavaScriptException();
@@ -599,11 +628,19 @@ Napi::Value AudioManager::GetMuteState(const Napi::CallbackInfo &info) {
     return env.Null();
   }
 
-  Boolean muted;
-  UInt32 muteSize = sizeof(muted);
+  UInt32 muted;
+
+  UInt32 muteSize;
+
   AudioObjectPropertyAddress propertyAddress = {
       kAudioDevicePropertyMute, kAudioObjectPropertyScopeOutput,
       kAudioObjectPropertyElementMaster};
+
+  if (!AudioObjectHasProperty(deviceId, &propertyAddress)) {
+    Napi::Error::New(env, "Device does not has a mute control")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
 
   status = AudioObjectGetPropertyDataSize(deviceId, &propertyAddress, 0, NULL,
                                           &muteSize);
@@ -624,7 +661,7 @@ Napi::Value AudioManager::GetMuteState(const Napi::CallbackInfo &info) {
     return env.Null();
   }
 
-  return Napi::Boolean::New(env, muted);
+  return Napi::Boolean::New(env, muted == 1);
 }
 
 Napi::Value AudioManager::SetMuteState(const Napi::CallbackInfo &info) {
@@ -646,11 +683,17 @@ Napi::Value AudioManager::SetMuteState(const Napi::CallbackInfo &info) {
     return env.Null();
   }
 
-  UInt32 muted = muteState ? 1 : 0;
   AudioObjectPropertyAddress propertyAddress = {
       kAudioDevicePropertyMute, kAudioObjectPropertyScopeOutput,
       kAudioObjectPropertyElementMaster};
 
+  if (!AudioObjectHasProperty(deviceId, &propertyAddress)) {
+    Napi::Error::New(env, "Device does not has a mute control")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  UInt32 muted = muteState ? 1 : 0;
   status = AudioObjectSetPropertyData(deviceId, &propertyAddress, 0, NULL,
                                       sizeof(muted), &muted);
   if (status != noErr) {
