@@ -381,6 +381,7 @@ VolumeListenerUnregisterObject AudioManager::RemoveVolumeListener() {
   VolumeListenerUnregisterObject result;
   if (!isMonitoring) {
     result.errorMessage = "Not monitoring";
+    result.status = noErr;
     result.isUnregistered = true;
     return result;
   }

@@ -35,7 +35,7 @@ declare class AudioManager {
 	/**
 	 * @description Returns the volume of the audio device with the name `deviceName`.
 	 */
-	getVolume: (deviceName: string) => { volume: number; decibels: number };
+	getVolume: (deviceName: string) => { volume: number; decibels?: number };
 	/**
 	 * @description Returns whether the audio device with the name `deviceName` is muted.
 	 */
