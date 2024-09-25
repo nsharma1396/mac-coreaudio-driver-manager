@@ -11,6 +11,13 @@ struct EventData {
   std::string *eventName = nullptr;
   std::string device;
   float volume;
+  float decibels = 0.0f; // optional
+};
+
+struct VolumeListenerUnregisterObject {
+  Boolean isUnregistered;
+  OSStatus status;
+  std::string errorMessage;
 };
 
 auto callback = [](Napi::Env env, Napi::Function jsCallback,
@@ -19,6 +26,7 @@ auto callback = [](Napi::Env env, Napi::Function jsCallback,
   eventResult.Set("eventName", (*(eventData->eventName)));
   eventResult.Set("device", eventData->device);
   eventResult.Set("volume", eventData->volume);
+  // eventResult.Set("decibels", eventData->decibels);
   jsCallback.Call({eventResult});
   delete eventData->eventName;
   delete eventData;
@@ -28,6 +36,7 @@ class AudioManager : public Napi::ObjectWrap<AudioManager> {
 public:
   static Napi::Object Init(Napi::Env env, Napi::Object exports);
   AudioManager(const Napi::CallbackInfo &info);
+  ~AudioManager();
 
 private:
   static Napi::FunctionReference constructor;
@@ -43,6 +52,11 @@ private:
   Napi::Value GetMuteState(const Napi::CallbackInfo &info);
   Napi::Value SetMuteState(const Napi::CallbackInfo &info);
 
+  VolumeListenerUnregisterObject RemoveVolumeListener();
+
+  static AudioDeviceID
+  GetCurrentDefaultOutputDeviceId(AudioDeviceID &defaultOutputDevice);
+  static Boolean GetDecibelValue(AudioDeviceID deviceId, Float32 &decibels);
   static std::string GetErrorDescription(OSStatus error);
   static OSStatus SetCustomProperty(AudioDeviceID deviceId,
                                     std::string customPropertyString);
@@ -60,7 +74,6 @@ private:
                                             const std::string &errorMessage);
 
   Napi::ThreadSafeFunction tsfn;
-  AudioObjectID defaultOutputDevice;
   bool isMonitoring;
 };
 
@@ -91,14 +104,30 @@ Napi::Object AudioManager::Init(Napi::Env env, Napi::Object exports) {
 }
 
 AudioManager::AudioManager(const Napi::CallbackInfo &info)
-    : Napi::ObjectWrap<AudioManager>(info), isMonitoring(false) {
+    : Napi::ObjectWrap<AudioManager>(info), isMonitoring(false) {}
+
+AudioManager::~AudioManager() {
+  if (isMonitoring) {
+    RemoveVolumeListener();
+  }
+}
+
+AudioDeviceID AudioManager::GetCurrentDefaultOutputDeviceId(
+    AudioDeviceID &defaultOutputDevice) {
   AudioObjectPropertyAddress propertyAddress = {
       kAudioHardwarePropertyDefaultOutputDevice,
       kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMaster};
 
   UInt32 dataSize = sizeof(AudioDeviceID);
-  AudioObjectGetPropertyData(kAudioObjectSystemObject, &propertyAddress, 0,
-                             NULL, &dataSize, &defaultOutputDevice);
+
+  OSStatus status =
+      AudioObjectGetPropertyData(kAudioObjectSystemObject, &propertyAddress, 0,
+                                 NULL, &dataSize, &defaultOutputDevice);
+  if (status != noErr) {
+    return 0;
+  }
+
+  return defaultOutputDevice;
 }
 
 std::string AudioManager::GetErrorDescription(OSStatus error) {
@@ -273,22 +302,39 @@ Napi::Value
 AudioManager::GetDefaultAudioDeviceName(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
-  AudioObjectPropertyAddress propertyAddress = {
-      kAudioHardwarePropertyDefaultOutputDevice,
-      kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMaster};
-
   AudioDeviceID defaultOutputDevice;
-  UInt32 dataSize = sizeof(AudioDeviceID);
+  GetCurrentDefaultOutputDeviceId(defaultOutputDevice);
 
-  OSStatus status =
-      AudioObjectGetPropertyData(kAudioObjectSystemObject, &propertyAddress, 0,
-                                 NULL, &dataSize, &defaultOutputDevice);
-  if (status != noErr) {
-    return HandleAudioObjectError(env, status,
+  if (defaultOutputDevice == 0) {
+    return HandleAudioObjectError(env, kAudioHardwareBadDeviceError,
                                   "Failed to get default output device");
   }
 
   return Napi::String::New(env, GetDeviceName(defaultOutputDevice));
+}
+
+Boolean AudioManager::GetDecibelValue(AudioDeviceID deviceId,
+                                      Float32 &decibels) {
+  UInt32 decibelsSize;
+  Boolean hasDecibels = false;
+  OSStatus status;
+
+  AudioObjectPropertyAddress propertyAddress = {
+      kAudioDevicePropertyVolumeDecibels, kAudioDevicePropertyScopeOutput,
+      kAudioObjectPropertyElementMaster};
+
+  if (AudioObjectHasProperty(deviceId, &propertyAddress)) {
+    status = AudioObjectGetPropertyDataSize(deviceId, &propertyAddress, 0, NULL,
+                                            &decibelsSize);
+    if (status == noErr) {
+      status = AudioObjectGetPropertyData(deviceId, &propertyAddress, 0, NULL,
+                                          &decibelsSize, &decibels);
+      if (status == noErr) {
+        hasDecibels = true;
+      }
+    }
+  }
+  return hasDecibels;
 }
 
 Napi::Value AudioManager::StartMonitoring(const Napi::CallbackInfo &info) {
@@ -306,53 +352,91 @@ Napi::Value AudioManager::StartMonitoring(const Napi::CallbackInfo &info) {
       kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyScopeOutput,
       kAudioObjectPropertyElementMaster};
 
+  AudioDeviceID defaultOutputDevice;
+  GetCurrentDefaultOutputDeviceId(defaultOutputDevice);
+
+  if (defaultOutputDevice == 0) {
+    return HandleAudioObjectError(env, kAudioHardwareBadDeviceError,
+                                  "Failed to get default output device");
+  }
+
   if (!AudioObjectHasProperty(defaultOutputDevice, &propertyAddress)) {
-    Napi::Error::New(env, "Default device does not has a output volume control")
-        .ThrowAsJavaScriptException();
-    return env.Null();
+    return HandleAudioObjectError(
+        env, kAudioHardwareUnknownPropertyError,
+        "Default device does not has a output volume control");
   }
 
   OSStatus status = AudioObjectAddPropertyListener(
       defaultOutputDevice, &propertyAddress, VolumeChangeListener, this);
 
   if (status != noErr) {
-    Napi::Error::New(env, "Failed to start monitoring")
-        .ThrowAsJavaScriptException();
-    return env.Null();
+    return HandleAudioObjectError(env, status, "Failed to start monitoring");
   }
 
   isMonitoring = true;
   return env.Null();
 }
 
-Napi::Value AudioManager::StopMonitoring(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
-
+VolumeListenerUnregisterObject AudioManager::RemoveVolumeListener() {
+  VolumeListenerUnregisterObject result;
   if (!isMonitoring) {
-    return env.Null();
+    result.errorMessage = "Not monitoring";
+    result.isUnregistered = true;
+    return result;
   }
 
   AudioObjectPropertyAddress propertyAddress = {
       kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyScopeOutput,
       kAudioObjectPropertyElementMaster};
 
+  AudioDeviceID defaultOutputDevice;
+  GetCurrentDefaultOutputDeviceId(defaultOutputDevice);
+
+  if (defaultOutputDevice == 0) {
+    result.isUnregistered = false;
+    result.status = kAudioHardwareBadDeviceError;
+    result.errorMessage = "Failed to get default output device";
+    return result;
+  }
+
   if (!AudioObjectHasProperty(defaultOutputDevice, &propertyAddress)) {
-    Napi::Error::New(env, "Default device does not has a output volume control")
-        .ThrowAsJavaScriptException();
-    return env.Null();
+    result.isUnregistered = false;
+    result.status = kAudioHardwareUnknownPropertyError;
+    result.errorMessage = "Default device does not has a output volume control";
+    return result;
   }
 
   OSStatus status = AudioObjectRemovePropertyListener(
       defaultOutputDevice, &propertyAddress, VolumeChangeListener, this);
 
   if (status != noErr) {
-    Napi::Error::New(env, "Failed to stop monitoring")
-        .ThrowAsJavaScriptException();
-    return env.Null();
+    result.isUnregistered = false;
+    result.status = status;
+    result.errorMessage = "Failed to stop monitoring";
+    return result;
   }
 
   isMonitoring = false;
-  tsfn.Release();
+  result.isUnregistered = true;
+  result.status = noErr;
+  result.errorMessage = "";
+  return result;
+}
+
+Napi::Value AudioManager::StopMonitoring(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+
+  VolumeListenerUnregisterObject result = RemoveVolumeListener();
+
+  if (!result.isUnregistered) {
+    return HandleAudioObjectError(env, result.status, result.errorMessage);
+  }
+
+  if (tsfn) {
+    tsfn.Release();
+    tsfn = nullptr;
+  }
+
   return env.Null();
 }
 
@@ -378,9 +462,9 @@ Napi::Value AudioManager::SetVolume(const Napi::CallbackInfo &info) {
       kAudioObjectPropertyElementMaster};
 
   if (!AudioObjectHasProperty(deviceId, &propertyAddress)) {
-    Napi::Error::New(env, "Device does not have a output volume control")
-        .ThrowAsJavaScriptException();
-    return env.Null();
+    return HandleAudioObjectError(
+        env, kAudioHardwareUnknownPropertyError,
+        "Device does not have a output volume control");
   }
 
   OSStatus status = AudioObjectSetPropertyData(deviceId, &propertyAddress, 0,
@@ -406,37 +490,43 @@ Napi::Value AudioManager::GetVolume(const Napi::CallbackInfo &info) {
 
   // Get the volume
   Float32 volume = 0.0f;
+  UInt32 dataSize;
+  OSStatus status;
+
   AudioObjectPropertyAddress propertyAddress = {
       kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyScopeOutput,
       kAudioObjectPropertyElementMaster};
 
   if (!AudioObjectHasProperty(deviceId, &propertyAddress)) {
-    Napi::Error::New(env, "Device does not has a main volume control")
-        .ThrowAsJavaScriptException();
-    return env.Null();
+    return HandleAudioObjectError(
+        env, kAudioHardwareUnknownPropertyError,
+        "Device does not have a output volume control");
   }
-
-  UInt32 dataSize;
-  OSStatus status;
 
   status = AudioObjectGetPropertyDataSize(deviceId, &propertyAddress, 0, NULL,
                                           &dataSize);
 
   if (status != noErr) {
-    Napi::Error::New(env, "Failed to get volume size")
-        .ThrowAsJavaScriptException();
-    return env.Null();
+    return HandleAudioObjectError(env, status, "Failed to get volume size");
   }
 
   status = AudioObjectGetPropertyData(deviceId, &propertyAddress, 0, NULL,
                                       &dataSize, &volume);
 
   if (status != noErr) {
-    Napi::Error::New(env, "Failed to get volume").ThrowAsJavaScriptException();
-    return env.Null();
+    return HandleAudioObjectError(env, status, "Failed to get volume");
   }
 
-  return Napi::Number::New(env, volume);
+  // Float32 decibels;
+  // bool hasDecibels = GetDecibelValue(deviceId, decibels);
+
+  Napi::Object volumeData = Napi::Object::New(env);
+  volumeData.Set("volume", volume);
+  // if (hasDecibels) {
+  //   volumeData.Set("decibels", decibels);
+  // }
+
+  return Napi::Value(volumeData);
 }
 
 OSStatus AudioManager::SetCustomProperty(AudioDeviceID deviceId,
@@ -597,6 +687,9 @@ OSStatus AudioManager::VolumeChangeListener(
   OSStatus status = AudioObjectGetPropertyData(inObjectID, &propertyAddress, 0,
                                                NULL, &dataSize, &volume);
 
+  // Float32 decibels;
+  // bool hasDecibels = GetDecibelValue(inObjectID, decibels);
+
   if (status == noErr) {
     // Get the device name
     std::string deviceName = GetDeviceName(inObjectID);
@@ -604,7 +697,12 @@ OSStatus AudioManager::VolumeChangeListener(
     eventData->eventName = new std::string("volumeChange");
     eventData->device = deviceName;
     eventData->volume = volume;
-    monitor->tsfn.NonBlockingCall(eventData, callback);
+    // if (hasDecibels) {
+    //   eventData->decibels = decibels;
+    // }
+    if (monitor->tsfn) {
+      monitor->tsfn.NonBlockingCall(eventData, callback);
+    }
   }
 
   return noErr;

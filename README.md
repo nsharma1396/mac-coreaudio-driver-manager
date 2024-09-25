@@ -31,38 +31,47 @@ const AudioManager = require("mac-coreaudio-driver-manager");
 
   - Starts monitoring the volume of the audio devices.
   - `volumeChangeCallback`: A callback function that is called when a volume change event occurs.
+  - throws an error if operation is not supported
 
 - `stopVolumeMonitoring(): void`
 
   - Stops monitoring the volume of the audio devices.
+  - throws an error if operation is not supported
 
 - `setVolume(deviceName: string, volume: number): void`
 
   - Sets the volume of the audio device with the name `deviceName` to `volume`.
+  - throws an error if operation is not supported
 
-- `getVolume(deviceName: string): number`
+- `getVolume(deviceName: string): {volume: number; decibels: number}`
 
   - Returns the volume of the audio device with the name `deviceName`.
+  - throws an error if operation is not supported
 
 - `getMuteState(deviceName: string) => boolean`
 
   - Gets the mute state for the device with the `deviceName`
+  - throws an error if operation is not supported
 
 - `setMuteState(deviceName: string, isMuted: boolean) => void`
 
   - Sets the mute state for the device with the `deviceName`
+  - throws an error if operation is not supported
 
 - `switchAudioDevice(deviceName: string): void`
 
   - Switches the default audio device to the device with the name `deviceName`.
+  - throws an error if operation is not supported
 
 - `getDefaultAudioDeviceName(): string`
 
   - Returns the name of the default audio device. (Only output devices are returned currently)
+  - throws an error if operation is not supported
 
 - `getAllAudioDeviceNames(): string[]`
 
   - Returns the names of all audio devices.
+  - throws an error if operation is not supported
 
 - `setVirtualDeviceCustomProperty(deviceName: string, value: string): void`
   - Finds the first custom property of the virtual device `deviceName` and attempts to set its value to `value`.
@@ -83,6 +92,10 @@ export interface IVolumeChangeEvent {
 	 * @description Volume level of the audio device.
 	 */
 	volume: number;
+	/**
+	 * @description Decibel level of the audio device.
+	 **/
+	decibels?: number;
 }
 ```
 

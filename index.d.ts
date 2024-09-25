@@ -11,6 +11,10 @@ export interface IVolumeChangeEvent {
 	 * @description Volume level of the audio device.
 	 */
 	volume: number;
+	/**
+	 * @description Decibel level of the audio device.
+	 */
+	decibels?: number;
 }
 
 declare class AudioManager {
@@ -31,7 +35,7 @@ declare class AudioManager {
 	/**
 	 * @description Returns the volume of the audio device with the name `deviceName`.
 	 */
-	getVolume: (deviceName: string) => void;
+	getVolume: (deviceName: string) => { volume: number; decibels: number };
 	/**
 	 * @description Returns whether the audio device with the name `deviceName` is muted.
 	 */
