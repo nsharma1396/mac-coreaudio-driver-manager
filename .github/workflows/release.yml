@@ -74,16 +74,12 @@ jobs:
       matrix:
         os:
           - macos-latest
-        host:
-          - arm64
-        target:
-          - x64
-          - arm64
+          - macos-13
         node:
           - 18
           - 16
 
-    name: ${{ matrix.os }} (node=${{ matrix.node }}, host=${{ matrix.host }}, target=${{ matrix.target }})
+    name: ${{ matrix.os }} (node=${{ matrix.node }}, os=${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
 
@@ -91,11 +87,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Setup node (node=${{ matrix.node }}, host=${{ matrix.host }})
+      - name: Get architecture
+        run: uname -m
+
+      - name: Setup node (node=${{ matrix.node }}, os=${{ matrix.os }})
         uses: actions/setup-node@v3
         with:
           node-version: ${{ matrix.node }}
-          architecture: ${{ matrix.host }}
 
       - name: Install dependencies
         run: npm install --ignore-scripts
@@ -104,7 +102,7 @@ jobs:
         shell: bash
         run: |
           echo "V=1" >> $GITHUB_ENV
-          echo "TARGET=${{ matrix.target }}" >> $GITHUB_ENV
+          echo "TARGET=$(uname -m)" >> $GITHUB_ENV
 
       - name: Configure build
         run: ./node_modules/.bin/node-pre-gyp configure --target_arch=${{ env.TARGET }}
